@@ -1,6 +1,6 @@
 using UnityEngine;
 using System.Collections;
-using TMPro; // NEW: For the sell price text
+using TMPro;
 
 public class Tower : MonoBehaviour
 {
@@ -20,15 +20,21 @@ public class Tower : MonoBehaviour
     [Tooltip("Number of segments to use when drawing the radius circle.")]
     [SerializeField] private int segments = 50; // More segments = smoother circle
 
-    // --- NEW: Tower Cost Variable and Public Accessor ---
+    // Tower Cost, Sell Price Text variables
     [Tooltip("The original purchase cost of this tower.")]
-    [SerializeField] private int towerCost; // Set this on the prefab based on GameManager's basicTowerCost
+    [SerializeField] private int towerCost;
     public int TowerCost => towerCost;
-    // ----------------------------------------------------
-
-    // --- NEW: Sell Price Display Text ---
     [Tooltip("TextMeshPro text element to display sell price when hovered in sell mode.")]
     [SerializeField] private TextMeshProUGUI sellPriceText;
+
+    // Animator variable (not used for Fatty Poly Turret, but kept if you swap assets)
+    [Tooltip("Reference to the Animator component on the turret model.")]
+    [SerializeField] private Animator turretAnimator;
+
+    // --- NEW: Fire Effect GameObject ---
+    [Tooltip("Reference to the Fire Effect GameObject (e.g., muzzle flash particle system).")]
+    [SerializeField] private GameObject fireEffectPrefab; // Drag the FireFx object here
+    private ParticleSystem fireEffectParticleSystem; // Cached reference to its particle system
     // ------------------------------------
 
     private Transform targetEnemy;
@@ -49,35 +55,56 @@ public class Tower : MonoBehaviour
             radiusLineRenderer = GetComponentInChildren<LineRenderer>();
         }
 
-        SetRadiusVisible(false); // Initially hide radius
+        SetRadiusVisible(false);
 
-        // --- NEW: Initially hide the sell price text ---
         if (sellPriceText != null)
         {
             sellPriceText.gameObject.SetActive(false);
+            Debug.Log(name + ": SellPriceText initialized and hidden."); // DEBUG
         }
-        // ---------------------------------------------
+        else
+        {
+            Debug.LogError(name + ": SellPriceText is NULL in Tower.cs! Check prefab assignment.", this); // DEBUG
+        }
+
+        if (turretAnimator == null)
+        {
+            turretAnimator = GetComponentInChildren<Animator>();
+        }
+
+        // --- NEW: Get Particle System component from Fire Effect ---
+        if (fireEffectPrefab != null)
+        {
+            fireEffectParticleSystem = fireEffectPrefab.GetComponent<ParticleSystem>();
+            if (fireEffectParticleSystem == null)
+            {
+                Debug.LogWarning(name + ": FireEffectPrefab does not have a ParticleSystem component.", this);
+            }
+        }
+        else
+        {
+            Debug.LogWarning(name + ": FireEffectPrefab is NULL in Tower.cs! Shot effect will not play.", this);
+        }
+        // -------------------------------------------------------------
     }
 
     private void Update()
     {
-        FindTarget(); // Continuously look for a target
+        FindTarget();
 
         if (targetEnemy != null)
         {
-            // Make the tower face the target (optional, for visual feedback)
             Vector3 lookDirection = targetEnemy.position - transform.position;
-            lookDirection.y = 0; // Keep tower upright
+            lookDirection.y = 0;
             if (lookDirection != Vector3.zero)
             {
                 transform.rotation = Quaternion.LookRotation(lookDirection);
             }
 
-            // Check if it's time to fire
             if (Time.time >= nextFireTime)
             {
                 Shoot();
-                nextFireTime = Time.time + 1f / fireRate; // Calculate next fire time
+                nextFireTime = Time.time + 1f / fireRate;
             }
         }
     }
@@ -96,11 +123,10 @@ public class Tower : MonoBehaviour
 
             foreach (Collider enemyCollider in enemiesInRange)
             {
-                if (enemyCollider == null) continue; // Skip if collider is null (enemy destroyed)
+                if (enemyCollider == null) continue;
 
-                // Check if the enemy still exists (has an Enemy component)
                 Enemy enemyComponent = enemyCollider.GetComponent<Enemy>();
-                if (enemyComponent == null) continue; // Skip if it's not a valid enemy
+                if (enemyComponent == null) continue;
 
                 float distance = Vector3.Distance(transform.position, enemyCollider.transform.position);
                 if (distance < closestDistance)
@@ -109,11 +135,11 @@ public class Tower : MonoBehaviour
                     potentialTarget = enemyCollider.transform;
                 }
             }
-            targetEnemy = potentialTarget; // Set the closest valid enemy as target
+            targetEnemy = potentialTarget;
         }
         else
         {
-            targetEnemy = null; // No enemies in range
+            targetEnemy = null;
         }
     }
 
@@ -128,23 +154,46 @@ public class Tower : MonoBehaviour
             return;
         }
 
-        // Instantiate bullet at fire point position
         GameObject bulletGO = Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
         Bullet bullet = bulletGO.GetComponent<Bullet>();
 
         if (bullet != null)
         {
-            // Calculate direction to target
             Vector3 direction = (targetEnemy.position - firePoint.position).normalized;
             bullet.SetDirection(direction);
         }
+
+        // --- NEW: Play the fire effect ---
+        if (fireEffectParticleSystem != null)
+        {
+            fireEffectParticleSystem.Play(); // Play the particle system
+        }
+        else if (fireEffectPrefab != null) // If it's not a particle system but just a GameObject we want to activate
+        {
+             // This assumes the FireFx is meant to be activated and then perhaps deactivates itself
+             // or you'd need a coroutine to deactivate it after a short time.
+             // For a simple single shot, ParticleSystem.Play() is ideal.
+             fireEffectPrefab.gameObject.SetActive(true); // Activate the GameObject
+             // If it's a transient effect, you might want to call SetActive(false) after a delay:
+             // StartCoroutine(DeactivateFireEffectAfterDelay(0.5f)); // Example delay
+        }
+        // ------------------------------------
     }
+
+    // --- NEW: Optional Coroutine for deactivating non-particle FX ---
+    // IEnumerator DeactivateFireEffectAfterDelay(float delay)
+    // {
+    //     yield return new WaitForSeconds(delay);
+    //     if (fireEffectPrefab != null)
+    //     {
+    //         fireEffectPrefab.gameObject.SetActive(false);
+    //     }
+    // }
+    // -----------------------------------------------------------------
 
     /// <summary>
     /// Draws the attack radius circle using the LineRenderer.
-    /// Call SetRadiusVisible(true) to show, SetRadiusVisible(false) to hide.
     /// </summary>
-    /// <param name="isVisible">True to show the radius, false to hide.</param>
     public void SetRadiusVisible(bool isVisible)
     {
         if (radiusLineRenderer == null)
@@ -179,17 +228,20 @@ public class Tower : MonoBehaviour
         }
     }
 
-    // --- NEW: Methods to show/hide sell price ---
     /// <summary>
     /// Displays the calculated sell price above the tower.
     /// </summary>
-    /// <param name="price">The money amount the player will get for selling.</param>
     public void ShowSellPrice(int price)
     {
         if (sellPriceText != null)
         {
             sellPriceText.text = $"+${price}";
             sellPriceText.gameObject.SetActive(true);
+            Debug.Log(name + ": Showing sell price: $" + price); // DEBUG
+        }
+        else
+        {
+            Debug.LogError(name + ": Attempted to show sell price but sellPriceText is NULL.", this); // DEBUG
         }
     }
 
@@ -201,13 +253,12 @@ public class Tower : MonoBehaviour
         if (sellPriceText != null)
         {
             sellPriceText.gameObject.SetActive(false);
+            Debug.Log(name + ": Hiding sell price."); // DEBUG
         }
     }
-    // ------------------------------------------
 
     /// <summary>
     /// Gizmos for visualizing attack range in the editor.
-    /// (This is for editor-only selection, SetRadiusVisible is for runtime player view)
     /// </summary>
     private void OnDrawGizmosSelected()
     {

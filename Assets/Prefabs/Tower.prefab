@@ -128,7 +128,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8c28e36939da9e24ea95072b1b8adce1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  attackRange: 6
+  attackRange: 4
   fireRate: 1
   bulletPrefab: {fileID: 4008129888634269809, guid: ceb6b0461f20d574f95abc6bedcb2428, type: 3}
   firePoint: {fileID: 124870477740365866}
@@ -136,6 +136,8 @@ MonoBehaviour:
   segments: 50
   towerCost: 150
   sellPriceText: {fileID: 8735914980875284976}
+  turretAnimator: {fileID: 0}
+  fireEffectPrefab: {fileID: 3055212790642996868}
 --- !u!135 &-7583737097138853506
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -573,6 +575,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 5124117118863007247}
     m_Modifications:
+    - target: {fileID: 1412543531084458, guid: 7191a0df8b6695d449a0f18a361bc311, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 1875090778556656, guid: 7191a0df8b6695d449a0f18a361bc311, type: 3}
       propertyPath: m_Name
       value: FattyPolyTurret_Visual
@@ -617,11 +623,20 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 199449255769242030, guid: 7191a0df8b6695d449a0f18a361bc311, type: 3}
+      propertyPath: m_Materials.Array.size
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 7191a0df8b6695d449a0f18a361bc311, type: 3}
+--- !u!1 &3055212790642996868 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 1412543531084458, guid: 7191a0df8b6695d449a0f18a361bc311, type: 3}
+  m_PrefabInstance: {fileID: 3054372297040665646}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &3058820262898809664 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4595654756050798, guid: 7191a0df8b6695d449a0f18a361bc311, type: 3}
