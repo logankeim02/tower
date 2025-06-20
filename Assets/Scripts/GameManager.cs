@@ -1,6 +1,7 @@
 using UnityEngine;
 using TMPro; // Required for TextMeshPro UI elements
 using System.Collections; // Required for IEnumerator (coroutines)
+using UnityEngine.UI; // REQUIRED for ScrollRect component!
 
 public class GameManager : MonoBehaviour
 {
@@ -42,18 +43,29 @@ public class GameManager : MonoBehaviour
     [SerializeField] private LayerMask towerLayer;
     [Tooltip("The LayerMask for detecting ground during tower placement.")]
     [SerializeField] private LayerMask groundLayer;
-    // --- NEW: LayerMask for checking no-build zones ---
     [Tooltip("The LayerMask for areas where towers cannot be built (e.g., enemy path).")]
     [SerializeField] private LayerMask noBuildZoneLayer;
     [Tooltip("Material for the tower preview when placement is valid.")]
     [SerializeField] private Material previewValidMaterial;
     [Tooltip("Material for the tower preview when placement is invalid.")]
     [SerializeField] private Material previewInvalidMaterial;
-    // ---------------------------------------------------
 
     [Header("Sell Settings")]
     [Tooltip("Percentage of original cost refunded when selling a tower (0.0 to 1.0).")]
     [SerializeField] private float sellRefundPercentage = 0.5f; // 50% refund
+
+    // Tower Purchase Options (for specific buttons/slots)
+    [Header("Tower Purchase Options")]
+    [Tooltip("The ID of the basic tower type that the Light Turret slot buys.")]
+    [SerializeField] private string lightTurretID = "BasicTower"; // Identifier for the type of tower
+
+    // --- NEW: Scrolling UI Variables ---
+    [Header("Scroll Menu Settings")]
+    [Tooltip("Reference to the Scroll Rect component of the turret buy menu.")]
+    [SerializeField] private ScrollRect turretBuyScrollRect;
+    [Tooltip("How much to scroll up/down per button click (0.0 to 1.0, 1.0 is full height).")]
+    [SerializeField] private float scrollAmountPerClick = 0.2f; // Scrolls 20% of the view height per click
+    // -----------------------------------
 
     private int currentRound = 0;
     private Transform[] pathWaypoints;
@@ -70,6 +82,7 @@ public class GameManager : MonoBehaviour
 
     private void Awake()
     {
+        // Singleton pattern enforcement
         if (Instance != null && Instance != this)
         {
             Destroy(gameObject);
@@ -77,6 +90,19 @@ public class GameManager : MonoBehaviour
         }
         Instance = this;
 
+        // Debug logs for UI elements
+        if (healthText == null) Debug.LogError("Awake: healthText is NULL in GameManager Inspector!", this);
+        else Debug.Log("Awake: healthText in GameManager references: " + healthText.name + " (Instance ID: " + healthText.GetInstanceID() + ")");
+        if (moneyText == null) Debug.LogError("Awake: moneyText is NULL in GameManager Inspector!", this);
+        else Debug.Log("Awake: moneyText in GameManager references: " + moneyText.name + " (Instance ID: " + moneyText.GetInstanceID() + ")");
+        if (roundText == null) Debug.LogError("Awake: roundText is NULL in GameManager Inspector!", this);
+        else Debug.Log("Awake: roundText in GameManager references: " + roundText.name + " (Instance ID: " + roundText.GetInstanceID() + ")");
+        
+        // Debug logs for ScrollRect
+        if (turretBuyScrollRect == null) Debug.LogError("Awake: turretBuyScrollRect is NULL in GameManager Inspector! Scroll buttons will not work.", this);
+        else Debug.Log("Awake: turretBuyScrollRect in GameManager references: " + turretBuyScrollRect.name + " (Instance ID: " + turretBuyScrollRect.GetInstanceID() + ")");
+
+        // Initial UI updates
         UpdateHealthUI();
         UpdateMoneyUI();
         UpdateRoundUI();
@@ -102,6 +128,10 @@ public class GameManager : MonoBehaviour
             Debug.LogError("Waypoints GameObject not found! Please create an empty GameObject named 'Waypoints' with child Transforms for the enemy path.");
         }
 
+        Debug.Log("Start: Calling UpdateHealthUI with playerHealth: " + playerHealth);
+        Debug.Log("Start: Calling UpdateMoneyUI with playerMoney: " + playerMoney);
+        Debug.Log("Start: Calling UpdateRoundUI with currentRound: " + currentRound);
+
         UpdateHealthUI();
         UpdateMoneyUI();
         UpdateRoundUI();
@@ -114,17 +144,17 @@ public class GameManager : MonoBehaviour
         HandleTowerPlacement();
         HandleTowerHover();
 
-        if (Input.GetMouseButtonDown(0)) // Left click
+        if (Input.GetMouseButtonDown(0))
         {
             if (isSellingTower)
             {
-                Debug.Log("Update: Left click detected in sell mode. Calling TrySellHoveredTower()."); // DEBUG
+                Debug.Log("Update: Left click detected in sell mode. Calling TrySellHoveredTower().");
                 TrySellHoveredTower();
             }
         }
-        else if (Input.GetMouseButtonDown(1)) // Right click (to cancel any active mode)
+        else if (Input.GetMouseButtonDown(1))
         {
-            Debug.Log("Update: Right click detected. Cancelling modes."); // DEBUG
+            Debug.Log("Update: Right click detected. Cancelling modes.");
             CancelPlacement();
             ExitSellMode();
         }
@@ -220,6 +250,15 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Called when the Light Turret buy slot is clicked.
+    /// </summary>
+    public void BuyLightTurret()
+    {
+        Debug.Log("BuyLightTurret button clicked. Attempting to place Light Turret.");
+        StartPlacingBasicTower();
+    }
+
     public void StartPlacingBasicTower()
     {
         if (isSellingTower) ExitSellMode();
@@ -234,12 +273,10 @@ public class GameManager : MonoBehaviour
             if (previewTowerComponent != null)
             {
                 previewTowerComponent.SetRadiusVisible(true);
-                previewTowerComponent.enabled = false; // Disable the Tower script
+                previewTowerComponent.enabled = false;
             }
 
-            // --- NEW: Set initial preview material ---
-            SetPreviewMaterial(currentPlacingTowerPreview, false); // Start with invalid visually
-            // ----------------------------------------
+            SetPreviewMaterial(currentPlacingTowerPreview, false);
 
             if (currentlyHoveredTower != null)
             {
@@ -248,7 +285,7 @@ public class GameManager : MonoBehaviour
                 currentlyHoveredTower = null;
             }
 
-            Debug.Log("StartPlacingBasicTower: Entering placement mode."); // DEBUG
+            Debug.Log("StartPlacingBasicTower: Entering placement mode.");
         }
         else
         {
@@ -263,44 +300,53 @@ public class GameManager : MonoBehaviour
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
         RaycastHit hit;
 
-        // --- NEW: Check for valid ground hit and no-build zone overlap ---
         bool hitGround = Physics.Raycast(ray, out hit, Mathf.Infinity, groundLayer);
+        Debug.DrawRay(ray.origin, ray.direction * 100f, hitGround ? Color.blue : Color.yellow);
+        Debug.Log($"HandleTowerPlacement: Raycast hit ground: {hitGround}. Hit point: {hit.point}");
+
         bool isValidPlacement = false;
 
         if (hitGround)
         {
-            // Update preview position
             currentPlacingTowerPreview.transform.position = new Vector3(hit.point.x, basicTowerPrefab.transform.position.y, hit.point.z);
 
-            // Check for overlap with no-build zone
-            // We'll use the Tower prefab's Sphere Collider radius for this check
-            // assuming it reflects the tower's base size for collision.
-            // If the tower prefab has multiple colliders, you might need to adjust this.
             Collider towerCollider = basicTowerPrefab.GetComponent<Collider>();
-            float checkRadius = (towerCollider is SphereCollider) ? (towerCollider as SphereCollider).radius * basicTowerPrefab.transform.localScale.x : 0.5f; // Fallback 0.5f
+            float checkRadius = 0.5f;
+            if (towerCollider != null)
+            {
+                if (towerCollider is SphereCollider sphereCol)
+                {
+                    checkRadius = sphereCol.radius * basicTowerPrefab.transform.lossyScale.x;
+                }
+                else if (towerCollider is CapsuleCollider capsuleCol)
+                {
+                    CapsuleCollider capCol = towerCollider as CapsuleCollider;
+                    checkRadius = Mathf.Max(capCol.radius, capCol.height / 2f) * basicTowerPrefab.transform.lossyScale.x;
+                }
+                else if (towerCollider is BoxCollider boxCol)
+                {
+                    checkRadius = Mathf.Max(boxCol.size.x, boxCol.size.z) / 2f * basicTowerPrefab.transform.lossyScale.x;
+                }
+            }
+            Debug.Log($"HandleTowerPlacement: Calculated tower checkRadius: {checkRadius}. Tower Prefab Scale: {basicTowerPrefab.transform.localScale}");
 
-            // Adjust Y-position for the overlap check to be at the base of the tower
-            Vector3 overlapCheckPosition = new Vector3(hit.point.x, basicTowerPrefab.transform.position.y + 0.1f, hit.point.z); // Slightly above ground
+            Vector3 overlapCheckPosition = new Vector3(hit.point.x, basicTowerPrefab.transform.position.y + 0.1f, hit.point.z);
             
-            // OverlapSphere returns true if any collider on noBuildZoneLayer is found within checkRadius
-            bool overlapsNoBuildZone = Physics.OverlapSphere(overlapCheckPosition, checkRadius, noBuildZoneLayer).Length > 0;
+            Collider[] collidersInNoBuildZone = Physics.OverlapSphere(overlapCheckPosition, checkRadius, noBuildZoneLayer);
+            bool overlapsNoBuildZone = collidersInNoBuildZone.Length > 0;
+            Debug.Log($"HandleTowerPlacement: Overlaps NoBuildZone: {overlapsNoBuildZone}. Colliders found: {collidersInNoBuildZone.Length}");
 
-            isValidPlacement = !overlapsNoBuildZone; // Placement is valid if it does NOT overlap no-build zone
+            isValidPlacement = !overlapsNoBuildZone;
 
-            // Update preview material based on validity
             SetPreviewMaterial(currentPlacingTowerPreview, isValidPlacement);
         }
         else
         {
-            // If not hitting ground, placement is invalid. Set preview material to invalid.
             SetPreviewMaterial(currentPlacingTowerPreview, false);
-            // Optionally hide the preview or move it to a "holding" spot
-            // currentPlacingTowerPreview.transform.position = new Vector3(1000,1000,1000); // Hide off-screen
+            Debug.Log("HandleTowerPlacement: Raycast did not hit ground layer, placement invalid.");
         }
 
-        // Only allow placement if it's hitting valid ground and not overlapping no-build zone
         if (Input.GetMouseButtonDown(0) && hitGround && isValidPlacement)
-        // ---------------------------------------------------------------------------------
         {
             PlaceTower(hit.point);
             isPlacingTower = false;
@@ -322,10 +368,10 @@ public class GameManager : MonoBehaviour
         if (newTowerComponent != null)
         {
             newTowerComponent.SetRadiusVisible(false);
-            newTowerComponent.enabled = true; // Ensure script is enabled on placed tower
+            newTowerComponent.enabled = true;
         }
 
-        Debug.Log("Tower placed at: " + position);
+        Debug.Log("Tower placed at: " + newTowerGO.transform.position);
     }
 
     public void CancelPlacement()
@@ -352,13 +398,13 @@ public class GameManager : MonoBehaviour
 
         if (isSellingTower)
         {
-            Debug.Log("StartSellingTower: Toggling OFF sell mode."); // DEBUG
+            Debug.Log("StartSellingTower: Toggling OFF sell mode.");
             ExitSellMode();
             return;
         }
 
         isSellingTower = true;
-        Debug.Log("StartSellingTower: Entered sell mode. isSellingTower = " + isSellingTower); // DEBUG
+        Debug.Log("StartSellingTower: Entered sell mode. isSellingTower = " + isSellingTower);
 
         if (currentlyHoveredTower != null)
         {
@@ -371,7 +417,7 @@ public class GameManager : MonoBehaviour
         if (!isSellingTower) return;
 
         isSellingTower = false;
-        Debug.Log("ExitSellMode: Exited sell mode. isSellingTower = " + isSellingTower); // DEBUG
+        Debug.Log("ExitSellMode: Exited sell mode. isSellingTower = " + isSellingTower);
 
         if (currentlyHoveredTower != null)
         {
@@ -383,26 +429,28 @@ public class GameManager : MonoBehaviour
 
     private void TrySellHoveredTower()
     {
-        Debug.Log("TrySellHoveredTower: Called. currentlyHoveredTower is null? " + (currentlyHoveredTower == null) + ", isSellingTower: " + isSellingTower); // DEBUG
+        Debug.Log("TrySellHoveredTower: Called. currentlyHoveredTower is null? " + (currentlyHoveredTower == null) + ", isSellingTower: " + isSellingTower);
         if (currentlyHoveredTower != null && isSellingTower)
         {
             SellTower(currentlyHoveredTower);
         }
         else if (isSellingTower)
         {
-            Debug.Log("TrySellHoveredTower: No tower hovered to sell when clicked."); // DEBUG
+            Debug.Log("TrySellHoveredTower: No tower hovered to sell when clicked.");
         }
         ExitSellMode();
     }
 
     private void SellTower(Tower towerToSell)
     {
-        Debug.Log("SellTower: Called to sell " + (towerToSell != null ? towerToSell.name : "NULL") + "."); // DEBUG
+        Debug.Log("SellTower: Called to sell " + (towerToSell != null ? towerToSell.name : "NULL") + ".");
         if (towerToSell == null) return;
 
         int refundAmount = Mathf.FloorToInt(towerToSell.TowerCost * sellRefundPercentage);
+        Debug.Log($"SellTower: TowerCost={towerToSell.TowerCost}, SellRefundPercentage={sellRefundPercentage}, RefundAmount={refundAmount}");
+
         AddMoney(refundAmount);
-        Debug.Log("SellTower: Refunding $" + refundAmount + ". New money: $" + PlayerMoney); // DEBUG
+        Debug.Log("SellTower: Refunding $" + refundAmount + ". New money: $" + PlayerMoney);
 
         if (currentlyHoveredTower == towerToSell)
         {
@@ -411,14 +459,9 @@ public class GameManager : MonoBehaviour
         }
 
         Destroy(towerToSell.gameObject);
-        Debug.Log("SellTower: Tower destroyed."); // DEBUG
+        Debug.Log("SellTower: Tower destroyed.");
     }
 
-    /// <summary>
-    /// Sets the material of the preview tower to indicate valid/invalid placement.
-    /// </summary>
-    /// <param name="previewGO">The preview tower GameObject.</param>
-    /// <param name="isValid">True for valid, false for invalid.</param>
     private void SetPreviewMaterial(GameObject previewGO, bool isValid)
     {
         if (previewGO == null) return;
@@ -439,11 +482,12 @@ public class GameManager : MonoBehaviour
                 Debug.LogWarning("Missing valid/invalid preview materials in GameManager, or preview renderer.", this);
             }
         }
+        else
+        {
+            Debug.LogWarning("Preview tower has no Renderer component to set material.", this);
+        }
     }
 
-    /// <summary>
-    /// Handles detecting if the mouse is hovering over a tower and displays its radius/sell price.
-    /// </summary>
     private void HandleTowerHover()
     {
         if (isPlacingTower)
@@ -474,20 +518,20 @@ public class GameManager : MonoBehaviour
                         currentlyHoveredTower.HideSellPrice();
                     }
                     currentlyHoveredTower = hitTower;
-                    Debug.Log("HandleTowerHover: Hovering new tower: " + currentlyHoveredTower.name); // DEBUG
+                    Debug.Log("HandleTowerHover: Hovering new tower: " + currentlyHoveredTower.name);
 
                     if (isSellingTower)
                     {
                         int refund = Mathf.FloorToInt(currentlyHoveredTower.TowerCost * sellRefundPercentage);
                         currentlyHoveredTower.ShowSellPrice(refund);
                         currentlyHoveredTower.SetRadiusVisible(false);
-                        Debug.Log("HandleTowerHover: Displaying sell price for " + currentlyHoveredTower.name + ": $" + refund); // DEBUG
+                        Debug.Log("HandleTowerHover: Displaying sell price for " + currentlyHoveredTower.name + ": $" + refund);
                     }
                     else
                     {
                         currentlyHoveredTower.SetRadiusVisible(true);
                         currentlyHoveredTower.HideSellPrice();
-                        Debug.Log("HandleTowerHover: Displaying radius for " + currentlyHoveredTower.name); // DEBUG
+                        Debug.Log("HandleTowerHover: Displaying radius for " + currentlyHoveredTower.name);
                     }
                 }
             }
@@ -498,7 +542,7 @@ public class GameManager : MonoBehaviour
                     currentlyHoveredTower.SetRadiusVisible(false);
                     currentlyHoveredTower.HideSellPrice();
                     currentlyHoveredTower = null;
-                    Debug.Log("HandleTowerHover: Exited tower hover (hit non-Tower script object)."); // DEBUG
+                    Debug.Log("HandleTowerHover: Exited tower hover (hit non-Tower script object).");
                 }
             }
         }
@@ -506,10 +550,10 @@ public class GameManager : MonoBehaviour
         {
             if (currentlyHoveredTower != null)
             {
-                currentlyHoveredTower.SetRadiusVisible(false);
-                currentlyHoveredTower.HideSellPrice();
-                currentlyHoveredTower = null;
-                Debug.Log("HandleTowerHover: Exited tower hover (no hit)."); // DEBUG
+                    currentlyHoveredTower.SetRadiusVisible(false);
+                    currentlyHoveredTower.HideSellPrice();
+                    currentlyHoveredTower = null;
+                    Debug.Log("HandleTowerHover: Exited tower hover (no hit).");
             }
         }
     }
@@ -521,7 +565,8 @@ public class GameManager : MonoBehaviour
     {
         if (healthText != null)
         {
-            healthText.text = $"Health: {playerHealth}";
+            healthText.text = $"{playerHealth}";
+            Debug.Log($"UpdateHealthUI: Setting HealthText to '{healthText.text}'");
         }
     }
 
@@ -532,7 +577,8 @@ public class GameManager : MonoBehaviour
     {
         if (moneyText != null)
         {
-            moneyText.text = $"Money: ${playerMoney}";
+            moneyText.text = $"{playerMoney}";
+            Debug.Log($"UpdateMoneyUI: Setting MoneyText to '{moneyText.text}'");
         }
     }
 
@@ -543,7 +589,8 @@ public class GameManager : MonoBehaviour
     {
         if (roundText != null)
         {
-            roundText.text = $"Round: {currentRound}";
+            roundText.text = $"{currentRound}";
+            Debug.Log($"UpdateRoundUI: Setting RoundText to '{roundText.text}'");
         }
     }
 

@@ -1,0 +1,9 @@
+6/20/2025 12:12
+
+-Mortar weapons that utilizes a projectile that actually uses the 3d space
+-runner variant of the same type of zombie (different skin)
+-Figure out the waves
+
+BUGS
+-need to figure out consistent resolution
+-reenable the elemenet in which the when a tower is selected it is red when not placeable and green when able to be placed(or just the skin)
