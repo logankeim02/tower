@@ -3,6 +3,8 @@
 -Mortar weapons that utilizes a projectile that actually uses the 3d space
 -runner variant of the same type of zombie (different skin)
 -Figure out the waves
+-make light turet slowly move to face the enemy
+-death animation, death sound?
 
 BUGS
 -need to figure out consistent resolution
