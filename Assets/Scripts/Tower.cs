@@ -27,17 +27,29 @@ public class Tower : MonoBehaviour
     [Tooltip("TextMeshPro text element to display sell price when hovered in sell mode.")]
     [SerializeField] private TextMeshProUGUI sellPriceText;
 
-    // Animator variable (not used for Fatty Poly Turret, but kept if you swap assets)
-    [Tooltip("Reference to the Animator component on the turret model.")]
-    [SerializeField] private Animator turretAnimator;
-
-    // --- NEW: Fire Effect GameObject ---
     [Tooltip("Reference to the Fire Effect GameObject (e.g., muzzle flash particle system).")]
-    [SerializeField] private GameObject fireEffectPrefab; // Drag the FireFx object here
-    private ParticleSystem fireEffectParticleSystem; // Cached reference to its particle system
-    // ------------------------------------
+    [SerializeField] private GameObject fireEffectPrefab;
+    private ParticleSystem fireEffectParticleSystem;
 
-    private Transform targetEnemy;
+    // Audio Variables
+    [Header("Audio Settings")]
+    [Tooltip("Reference to the AudioSource component on this tower.")]
+    [SerializeField] private AudioSource audioSource;
+    [Tooltip("The minimum pitch for the gun sound.")]
+    [SerializeField] private float minPitch = 0.9f; // Slightly flatter
+    [Tooltip("The maximum pitch for the gun sound.")]
+    [SerializeField] private float maxPitch = 1.1f; // Slightly sharper
+    // --- REMOVED: pitchStep ---
+    // [Tooltip("How much to change pitch per shot.")]
+    // [SerializeField] private float pitchStep = 0.05f;
+    // --------------------------
+
+    // --- REMOVED: currentPitch and pitchIncreasing as they're no longer needed for random pitch ---
+    // private float currentPitch;
+    // private bool pitchIncreasing = true;
+    // ------------------------------------------------------------------------------------------------
+
+    private Transform targetEnemy; // The current enemy this tower is targeting
     private float nextFireTime;
 
     private Collider[] enemiesInRange;
@@ -60,19 +72,12 @@ public class Tower : MonoBehaviour
         if (sellPriceText != null)
         {
             sellPriceText.gameObject.SetActive(false);
-            Debug.Log(name + ": SellPriceText initialized and hidden."); // DEBUG
         }
         else
         {
-            Debug.LogError(name + ": SellPriceText is NULL in Tower.cs! Check prefab assignment.", this); // DEBUG
+            Debug.LogError(name + ": SellPriceText is NULL in Tower.cs! Check prefab assignment.", this);
         }
 
-        if (turretAnimator == null)
-        {
-            turretAnimator = GetComponentInChildren<Animator>();
-        }
-
-        // --- NEW: Get Particle System component from Fire Effect ---
         if (fireEffectPrefab != null)
         {
             fireEffectParticleSystem = fireEffectPrefab.GetComponent<ParticleSystem>();
@@ -85,7 +90,19 @@ public class Tower : MonoBehaviour
         {
             Debug.LogWarning(name + ": FireEffectPrefab is NULL in Tower.cs! Shot effect will not play.", this);
         }
-        // -------------------------------------------------------------
+
+        // Initialize AudioSource
+        if (audioSource == null)
+        {
+            audioSource = GetComponent<AudioSource>();
+            if (audioSource == null)
+            {
+                Debug.LogError(name + ": AudioSource component not found on Tower! Sound will not play.", this);
+            }
+        }
+        // --- REMOVED: currentPitch initialization ---
+        // currentPitch = 1.0f; // Start at normal pitch
+        // ------------------------------------------
     }
 
     private void Update()
@@ -163,33 +180,24 @@ public class Tower : MonoBehaviour
             bullet.SetDirection(direction);
         }
 
-        // --- NEW: Play the fire effect ---
         if (fireEffectParticleSystem != null)
         {
-            fireEffectParticleSystem.Play(); // Play the particle system
+            fireEffectParticleSystem.Play();
         }
-        else if (fireEffectPrefab != null) // If it's not a particle system but just a GameObject we want to activate
+        else if (fireEffectPrefab != null)
         {
-             // This assumes the FireFx is meant to be activated and then perhaps deactivates itself
-             // or you'd need a coroutine to deactivate it after a short time.
-             // For a simple single shot, ParticleSystem.Play() is ideal.
-             fireEffectPrefab.gameObject.SetActive(true); // Activate the GameObject
-             // If it's a transient effect, you might want to call SetActive(false) after a delay:
-             // StartCoroutine(DeactivateFireEffectAfterDelay(0.5f)); // Example delay
+            fireEffectPrefab.gameObject.SetActive(true);
         }
-        // ------------------------------------
-    }
 
-    // --- NEW: Optional Coroutine for deactivating non-particle FX ---
-    // IEnumerator DeactivateFireEffectAfterDelay(float delay)
-    // {
-    //     yield return new WaitForSeconds(delay);
-    //     if (fireEffectPrefab != null)
-    //     {
-    //         fireEffectPrefab.gameObject.SetActive(false);
-    //     }
-    // }
-    // -----------------------------------------------------------------
+        // --- NEW: Play sound with RANDOM pitch ---
+        if (audioSource != null)
+        {
+            // Set a random pitch within the defined range
+            audioSource.pitch = Random.Range(minPitch, maxPitch);
+            audioSource.Play(); // Play the assigned AudioClip
+        }
+        // ------------------------------------------
+    }
 
     /// <summary>
     /// Draws the attack radius circle using the LineRenderer.
@@ -237,11 +245,10 @@ public class Tower : MonoBehaviour
         {
             sellPriceText.text = $"+${price}";
             sellPriceText.gameObject.SetActive(true);
-            Debug.Log(name + ": Showing sell price: $" + price); // DEBUG
         }
         else
         {
-            Debug.LogError(name + ": Attempted to show sell price but sellPriceText is NULL.", this); // DEBUG
+            Debug.LogError(name + ": Attempted to show sell price but sellPriceText is NULL.", this);
         }
     }
 
@@ -253,7 +260,6 @@ public class Tower : MonoBehaviour
         if (sellPriceText != null)
         {
             sellPriceText.gameObject.SetActive(false);
-            Debug.Log(name + ": Hiding sell price."); // DEBUG
         }
     }
 

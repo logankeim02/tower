@@ -45,8 +45,10 @@ public class GameManager : MonoBehaviour
     [SerializeField] private LayerMask groundLayer;
     [Tooltip("The LayerMask for areas where towers cannot be built (e.g., enemy path).")]
     [SerializeField] private LayerMask noBuildZoneLayer;
-    [Tooltip("Material for the tower preview when placement is valid.")]
-    [SerializeField] private Material previewValidMaterial;
+    // --- REMOVED: previewValidMaterial, as we'll use the original ---
+    // [Tooltip("Material for the tower preview when placement is valid.")]
+    // [SerializeField] private Material previewValidMaterial;
+    // -------------------------------------------------------------
     [Tooltip("Material for the tower preview when placement is invalid.")]
     [SerializeField] private Material previewInvalidMaterial;
 
@@ -59,13 +61,16 @@ public class GameManager : MonoBehaviour
     [Tooltip("The ID of the basic tower type that the Light Turret slot buys.")]
     [SerializeField] private string lightTurretID = "BasicTower"; // Identifier for the type of tower
 
-    // --- NEW: Scrolling UI Variables ---
+    // Scrolling UI Variables
     [Header("Scroll Menu Settings")]
     [Tooltip("Reference to the Scroll Rect component of the turret buy menu.")]
     [SerializeField] private ScrollRect turretBuyScrollRect;
     [Tooltip("How much to scroll up/down per button click (0.0 to 1.0, 1.0 is full height).")]
     [SerializeField] private float scrollAmountPerClick = 0.2f; // Scrolls 20% of the view height per click
-    // -----------------------------------
+
+    // --- NEW: Store original tower material ---
+    private Material originalTowerMaterial;
+    // ------------------------------------------
 
     private int currentRound = 0;
     private Transform[] pathWaypoints;
@@ -101,6 +106,26 @@ public class GameManager : MonoBehaviour
         // Debug logs for ScrollRect
         if (turretBuyScrollRect == null) Debug.LogError("Awake: turretBuyScrollRect is NULL in GameManager Inspector! Scroll buttons will not work.", this);
         else Debug.Log("Awake: turretBuyScrollRect in GameManager references: " + turretBuyScrollRect.name + " (Instance ID: " + turretBuyScrollRect.GetInstanceID() + ")");
+
+        // --- NEW: Get original material from basicTowerPrefab ---
+        if (basicTowerPrefab != null)
+        {
+            Renderer prefabRenderer = basicTowerPrefab.GetComponent<Renderer>();
+            if (prefabRenderer != null)
+            {
+                originalTowerMaterial = prefabRenderer.sharedMaterial;
+                Debug.Log($"Awake: Stored originalTowerMaterial: {originalTowerMaterial?.name}");
+            }
+            else
+            {
+                Debug.LogWarning("Awake: basicTowerPrefab has no Renderer component to get original material.", this);
+            }
+        }
+        else
+        {
+            Debug.LogError("Awake: basicTowerPrefab is NULL! Cannot store original material.", this);
+        }
+        // --------------------------------------------------------
 
         // Initial UI updates
         UpdateHealthUI();
@@ -276,7 +301,7 @@ public class GameManager : MonoBehaviour
                 previewTowerComponent.enabled = false;
             }
 
-            SetPreviewMaterial(currentPlacingTowerPreview, false);
+            SetPreviewMaterial(currentPlacingTowerPreview, false); // Start with invalid visually
 
             if (currentlyHoveredTower != null)
             {
@@ -462,6 +487,11 @@ public class GameManager : MonoBehaviour
         Debug.Log("SellTower: Tower destroyed.");
     }
 
+    /// <summary>
+    /// Sets the material of the preview tower to indicate valid/invalid placement.
+    /// </summary>
+    /// <param name="previewGO">The preview tower GameObject.</param>
+    /// <param name="isValid">True for valid, false for invalid.</param>
     private void SetPreviewMaterial(GameObject previewGO, bool isValid)
     {
         if (previewGO == null) return;
@@ -469,17 +499,31 @@ public class GameManager : MonoBehaviour
         Renderer previewRenderer = previewGO.GetComponent<Renderer>();
         if (previewRenderer != null)
         {
-            if (isValid && previewValidMaterial != null)
+            if (isValid) // Use original material for valid placement
             {
-                previewRenderer.material = previewValidMaterial;
+                if (originalTowerMaterial != null)
+                {
+                    previewRenderer.material = originalTowerMaterial;
+                }
+                else
+                {
+                    // Fallback if original material wasn't set, use a default white/grey
+                    previewRenderer.material = new Material(Shader.Find("Universal Render Pipeline/Lit")); // Or "Standard" if not URP
+                    Debug.LogWarning("SetPreviewMaterial: Original tower material is NULL, using default URP Lit material.", this);
+                }
             }
-            else if (!isValid && previewInvalidMaterial != null)
+            else // Use invalid material for invalid placement
             {
-                previewRenderer.material = previewInvalidMaterial;
-            }
-            else
-            {
-                Debug.LogWarning("Missing valid/invalid preview materials in GameManager, or preview renderer.", this);
+                if (previewInvalidMaterial != null)
+                {
+                    previewRenderer.material = previewInvalidMaterial;
+                }
+                else
+                {
+                    // Fallback if invalid material wasn't set, use a default red
+                    previewRenderer.material = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = Color.red }; // Or "Standard"
+                    Debug.LogWarning("SetPreviewMaterial: Invalid preview material is NULL, using default red material.", this);
+                }
             }
         }
         else
@@ -612,5 +656,40 @@ public class GameManager : MonoBehaviour
             gameOverMessageText.text = "GAME OVER!";
         }
         Debug.Log(won ? "Game Won!" : "Game Over!");
+    }
+
+    // --- Scrolling Methods ---
+    /// <summary>
+    /// Scrolls the turret buy menu up by a defined amount.
+    /// </summary>
+    public void ScrollUpTurretMenu()
+    {
+        if (turretBuyScrollRect != null)
+        {
+            Debug.Log($"ScrollUpTurretMenu: Current normalized position: {turretBuyScrollRect.verticalNormalizedPosition}"); // DEBUG
+            turretBuyScrollRect.verticalNormalizedPosition = Mathf.Min(1f, turretBuyScrollRect.verticalNormalizedPosition + scrollAmountPerClick);
+            Debug.Log($"ScrollUpTurretMenu: New normalized position: {turretBuyScrollRect.verticalNormalizedPosition}"); // DEBUG
+        }
+        else
+        {
+            Debug.LogWarning("ScrollUpTurretMenu: turretBuyScrollRect is not assigned!", this);
+        }
+    }
+
+    /// <summary>
+    /// Scrolls the turret buy menu down by a defined amount.
+    /// </summary>
+    public void ScrollDownTurretMenu()
+    {
+        if (turretBuyScrollRect != null)
+        {
+            Debug.Log($"ScrollDownTurretMenu: Current normalized position: {turretBuyScrollRect.verticalNormalizedPosition}"); // DEBUG
+            turretBuyScrollRect.verticalNormalizedPosition = Mathf.Max(0f, turretBuyScrollRect.verticalNormalizedPosition - scrollAmountPerClick);
+            Debug.Log($"ScrollDownTurretMenu: New normalized position: {turretBuyScrollRect.verticalNormalizedPosition}"); // DEBUG
+        }
+        else
+        {
+            Debug.LogWarning("ScrollDownTurretMenu: turretBuyScrollRect is not assigned!", this);
+        }
     }
 }
