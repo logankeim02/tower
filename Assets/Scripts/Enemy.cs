@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections; // Required for Coroutines
 
 public class Enemy : MonoBehaviour
 {
@@ -23,11 +24,23 @@ public class Enemy : MonoBehaviour
     [Tooltip("Prefab of the gore particles to instantiate and play when enemy dies.")]
     [SerializeField] private GameObject goreParticlesPrefab;
 
+    // --- NEW: References for Ragdoll ---
+    private Rigidbody[] ragdollRigidbodies;
+    private Collider mainCollider;
+    // ---------------------------------
+
     private Transform[] pathWaypoints;
     private int currentWaypointIndex = 0;
-    
-    // --- NEW: This flag prevents the death code from running multiple times ---
     private bool isDying = false;
+
+    private void Awake()
+    {
+        // --- NEW: Get ragdoll components on Awake ---
+        mainCollider = GetComponent<Collider>();
+        ragdollRigidbodies = GetComponentsInChildren<Rigidbody>();
+        // Initially, all rigidbodies should be kinematic (set in the editor from Step 1)
+        // ---------------------------------------------
+    }
 
     public void SetPath(Transform[] waypoints)
     {
@@ -48,6 +61,9 @@ public class Enemy : MonoBehaviour
 
     private void Update()
     {
+        // Stop moving if dead
+        if (isDying) return;
+
         if (pathWaypoints == null || pathWaypoints.Length == 0)
         {
             Debug.LogWarning("Enemy path not set or empty!");
@@ -57,9 +73,7 @@ public class Enemy : MonoBehaviour
         if (currentWaypointIndex < pathWaypoints.Length)
         {
             Vector3 targetPosition = pathWaypoints[currentWaypointIndex].position;
-
             transform.position = Vector3.MoveTowards(transform.position, targetPosition, moveSpeed * Time.deltaTime);
-
             Vector3 directionToWaypoint = (targetPosition - transform.position).normalized;
             if (directionToWaypoint != Vector3.zero)
             {
@@ -73,33 +87,87 @@ public class Enemy : MonoBehaviour
         }
         else
         {
-            // --- MODIFIED: Check the isDying flag before running leak logic ---
             if (!isDying)
             {
-                isDying = true; // Set the flag
+                // --- MODIFIED: Trigger ragdoll instead of destroying immediately ---
+                isDying = true;
                 GameManager.Instance.TakeDamage(damageOnReachEnd);
-                GameManager.Instance.EnemyDefeated(); // Notify the GameManager
-                Destroy(gameObject);
+                GameManager.Instance.EnemyDefeated();
+                ActivateRagdoll();
+                // -------------------------------------------------------------
             }
         }
     }
 
     public void TakeDamage(int damage)
     {
-        // Don't process damage if the enemy is already dying
         if (isDying) return;
 
         enemyHealth -= damage;
 
-        // --- MODIFIED: Check the isDying flag before running death logic ---
         if (enemyHealth <= 0 && !isDying)
         {
-            isDying = true; // Set the flag immediately to prevent other calls
+            isDying = true;
             GameManager.Instance.AddMoney(moneyOnKill);
             SpawnDeathEffects();
-            GameManager.Instance.EnemyDefeated(); // Notify the GameManager
-            Destroy(gameObject);
+            GameManager.Instance.EnemyDefeated();
+            // --- MODIFIED: Trigger ragdoll instead of destroying immediately ---
+            ActivateRagdoll();
+            // -------------------------------------------------------------
         }
+    }
+
+    // --- NEW: Method to switch from animated to ragdoll ---
+    private void ActivateRagdoll()
+    {
+        // Disable the animator and main collider
+        enemyAnimator.enabled = false;
+        if(mainCollider != null) mainCollider.enabled = false;
+
+        // Enable physics on all ragdoll rigidbodies
+        foreach (Rigidbody rb in ragdollRigidbodies)
+        {
+            rb.isKinematic = false;
+        }
+        
+        // Start the fade out and destroy timer
+        StartCoroutine(FadeOutAndDestroy(5f, 2f));
+    }
+
+    // --- NEW: Coroutine for timer and fading ---
+    private IEnumerator FadeOutAndDestroy(float delay, float fadeDuration)
+    {
+        // Wait for 5 seconds
+        yield return new WaitForSeconds(delay);
+
+        // Get all renderers on the ragdoll
+        SkinnedMeshRenderer[] renderers = GetComponentsInChildren<SkinnedMeshRenderer>();
+        float timer = 0f;
+        
+        // Store original colors to fade from
+        MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
+
+        // Gradually fade out
+        while (timer < fadeDuration)
+        {
+            // Calculate the new alpha value
+            float newAlpha = Mathf.Lerp(1f, 0f, timer / fadeDuration);
+
+            // Apply alpha to all renderers
+            foreach (SkinnedMeshRenderer r in renderers)
+            {
+                r.GetPropertyBlock(propBlock);
+                Color originalColor = r.material.color; // Assuming URP Lit shader
+                propBlock.SetColor("_BaseColor", new Color(originalColor.r, originalColor.g, originalColor.b, newAlpha));
+                r.SetPropertyBlock(propBlock);
+            }
+
+            timer += Time.deltaTime;
+            yield return null;
+        }
+
+        // Destroy the GameObject after fading
+        Destroy(gameObject);
     }
 
     private void SpawnDeathEffects()
