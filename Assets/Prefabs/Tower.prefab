@@ -129,13 +129,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8c28e36939da9e24ea95072b1b8adce1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  attackRange: 4
-  fireRate: 1
+  attackRange: 3.5
+  fireRate: 0.4
   bulletPrefab: {fileID: 4008129888634269809, guid: ceb6b0461f20d574f95abc6bedcb2428, type: 3}
   firePoint: {fileID: 124870477740365866}
   radiusLineRenderer: {fileID: 8066904077188407983}
   segments: 50
-  towerCost: 150
+  towerCost: 175
   sellPriceText: {fileID: 8735914980875284976}
   fireEffectPrefab: {fileID: 3055212790642996868}
   audioSource: {fileID: 0}
@@ -175,7 +175,7 @@ AudioSource:
   m_audioClip: {fileID: 8300000, guid: e632fcc8b3cdb8e4fb62836eabe64949, type: 3}
   m_Resource: {fileID: 8300000, guid: e632fcc8b3cdb8e4fb62836eabe64949, type: 3}
   m_PlayOnAwake: 0
-  m_Volume: 0.081
+  m_Volume: 0.026
   m_Pitch: 1
   Loop: 0
   Mute: 0

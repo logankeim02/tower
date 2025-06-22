@@ -12,22 +12,22 @@ public class Enemy : MonoBehaviour
     [Tooltip("The damage dealt to player health if this enemy reaches the end.")]
     [SerializeField] private int damageOnReachEnd = 1;
 
-    // Animator variables
     [Tooltip("Reference to the Animator component on the enemy model.")]
     [SerializeField] private Animator enemyAnimator;
     [Tooltip("The name of the animation state to play when the enemy moves (e.g., 'Walk', 'Run').")]
     [SerializeField] private string walkAnimationStateName = "Walk";
 
-    // --- NEW: Death Effects Prefabs ---
     [Header("Death Effects")]
     [Tooltip("Prefab of the blood splat to instantiate on the ground when enemy dies.")]
     [SerializeField] private GameObject bloodSplatGroundPrefab;
     [Tooltip("Prefab of the gore particles to instantiate and play when enemy dies.")]
     [SerializeField] private GameObject goreParticlesPrefab;
-    // -----------------------------------
 
     private Transform[] pathWaypoints;
     private int currentWaypointIndex = 0;
+    
+    // --- NEW: This flag prevents the death code from running multiple times ---
+    private bool isDying = false;
 
     public void SetPath(Transform[] waypoints)
     {
@@ -73,51 +73,51 @@ public class Enemy : MonoBehaviour
         }
         else
         {
-            GameManager.Instance.TakeDamage(damageOnReachEnd);
-            Destroy(gameObject);
+            // --- MODIFIED: Check the isDying flag before running leak logic ---
+            if (!isDying)
+            {
+                isDying = true; // Set the flag
+                GameManager.Instance.TakeDamage(damageOnReachEnd);
+                GameManager.Instance.EnemyDefeated(); // Notify the GameManager
+                Destroy(gameObject);
+            }
         }
     }
 
-    /// <summary>
-    /// Call this method when a bullet hits the enemy.
-    /// </summary>
-    /// <param name="damage">Amount of damage to apply.</param>
     public void TakeDamage(int damage)
     {
+        // Don't process damage if the enemy is already dying
+        if (isDying) return;
+
         enemyHealth -= damage;
-        if (enemyHealth <= 0)
+
+        // --- MODIFIED: Check the isDying flag before running death logic ---
+        if (enemyHealth <= 0 && !isDying)
         {
+            isDying = true; // Set the flag immediately to prevent other calls
             GameManager.Instance.AddMoney(moneyOnKill);
-            // --- NEW: Call death effects method ---
             SpawnDeathEffects();
-            // --------------------------------------
+            GameManager.Instance.EnemyDefeated(); // Notify the GameManager
             Destroy(gameObject);
         }
     }
 
-    // --- NEW: Method to spawn death effects ---
     private void SpawnDeathEffects()
     {
-        // Spawn Blood Splat on Ground
         if (bloodSplatGroundPrefab != null)
         {
-            // Position slightly above the ground, at the enemy's current position
             Vector3 splatPosition = new Vector3(transform.position.x, 0.005f, transform.position.z);
-            Instantiate(bloodSplatGroundPrefab, splatPosition, Quaternion.Euler(90f, Random.Range(0f, 360f), 0f)); // Rotate to face up, random rotation
+            Instantiate(bloodSplatGroundPrefab, splatPosition, Quaternion.Euler(90f, Random.Range(0f, 360f), 0f));
         }
 
-        // Spawn Flying Gore Particles
         if (goreParticlesPrefab != null)
         {
             GameObject goreGO = Instantiate(goreParticlesPrefab, transform.position, Quaternion.identity);
-            // If it's a particle system, ensure it plays and destroys itself
             ParticleSystem ps = goreGO.GetComponent<ParticleSystem>();
             if (ps != null)
             {
                 ps.Play();
             }
-            // The DestroyAfterTime script on the prefab will handle its destruction
         }
     }
-    // ------------------------------------------
 }

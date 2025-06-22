@@ -1,7 +1,8 @@
 using UnityEngine;
 using TMPro; // Required for TextMeshPro UI elements
 using System.Collections; // Required for IEnumerator (coroutines)
-using UnityEngine.UI; // REQUIRED for ScrollRect component!
+using System.Collections.Generic; // REQUIRED for Lists
+using UnityEngine.UI; // REQUIRED for UI components like Button
 
 public class GameManager : MonoBehaviour
 {
@@ -21,18 +22,33 @@ public class GameManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI moneyText;
     [Tooltip("Reference to the UI Text element displaying the current round.")]
     [SerializeField] private TextMeshProUGUI roundText;
+    [Tooltip("Reference to the UI Text element displaying the enemy counter.")]
+    [SerializeField] private TextMeshProUGUI enemyCounterText;
     [Tooltip("Reference to the UI Text element displaying the win/lose message.")]
     [SerializeField] private GameObject gameOverPanel;
     [Tooltip("Reference to the UI Text element inside the game over panel.")]
     [SerializeField] private TextMeshProUGUI gameOverMessageText;
+    // --- NEW: UI Button Reference ---
+    [Tooltip("Reference to the button that starts the next round.")]
+    [SerializeField] private Button startRoundButton;
+    // ---------------------------------
 
-    [Header("Round Settings")]
-    [Tooltip("The delay in seconds before the first enemy spawns in a round.")]
-    [SerializeField] private float startWaveDelay = 2f;
+    // --- NEW: Audio Source Reference ---
+    [Header("Audio")]
+    [Tooltip("The AudioSource that plays a sound when the round starts.")]
+    [SerializeField] private AudioSource startRoundAudioSource;
+    // -----------------------------------
+
+    [Header("Round & Wave Settings")]
+    [Tooltip("Assign all the Wave ScriptableObjects here in the order they should appear.")]
+    [SerializeField] private List<Wave> waves;
+    [Tooltip("The delay in seconds after starting a round before the first enemy spawns.")]
+    [SerializeField] private float startWaveDelay = 1f;
     [Tooltip("The time in seconds between each enemy spawn during a wave.")]
     [SerializeField] private float enemySpawnInterval = 0.5f;
-    [Tooltip("Reference to the Enemy prefab to be spawned.")]
-    [SerializeField] private GameObject enemyPrefab;
+
+    private int enemiesSpawnedInWave = 0;
+    private int enemiesRemainingInWave = 0;
 
     [Header("Tower Placement")]
     [Tooltip("Reference to the Basic Tower prefab to be placed.")]
@@ -45,10 +61,6 @@ public class GameManager : MonoBehaviour
     [SerializeField] private LayerMask groundLayer;
     [Tooltip("The LayerMask for areas where towers cannot be built (e.g., enemy path).")]
     [SerializeField] private LayerMask noBuildZoneLayer;
-    // --- REMOVED: previewValidMaterial, as we'll use the original ---
-    // [Tooltip("Material for the tower preview when placement is valid.")]
-    // [SerializeField] private Material previewValidMaterial;
-    // -------------------------------------------------------------
     [Tooltip("Material for the tower preview when placement is invalid.")]
     [SerializeField] private Material previewInvalidMaterial;
 
@@ -56,21 +68,17 @@ public class GameManager : MonoBehaviour
     [Tooltip("Percentage of original cost refunded when selling a tower (0.0 to 1.0).")]
     [SerializeField] private float sellRefundPercentage = 0.5f; // 50% refund
 
-    // Tower Purchase Options (for specific buttons/slots)
     [Header("Tower Purchase Options")]
     [Tooltip("The ID of the basic tower type that the Light Turret slot buys.")]
     [SerializeField] private string lightTurretID = "BasicTower"; // Identifier for the type of tower
 
-    // Scrolling UI Variables
     [Header("Scroll Menu Settings")]
     [Tooltip("Reference to the Scroll Rect component of the turret buy menu.")]
     [SerializeField] private ScrollRect turretBuyScrollRect;
     [Tooltip("How much to scroll up/down per button click (0.0 to 1.0, 1.0 is full height).")]
     [SerializeField] private float scrollAmountPerClick = 0.2f; // Scrolls 20% of the view height per click
 
-    // --- NEW: Store original tower material ---
     private Material originalTowerMaterial;
-    // ------------------------------------------
 
     private int currentRound = 0;
     private Transform[] pathWaypoints;
@@ -81,13 +89,14 @@ public class GameManager : MonoBehaviour
     private Tower currentlyHoveredTower;
 
     private bool isSellingTower = false;
+    // --- NEW: Game State Flag ---
+    private bool isWaveInProgress = false;
 
     public int PlayerHealth => playerHealth;
     public int PlayerMoney => playerMoney;
 
     private void Awake()
     {
-        // Singleton pattern enforcement
         if (Instance != null && Instance != this)
         {
             Destroy(gameObject);
@@ -95,19 +104,16 @@ public class GameManager : MonoBehaviour
         }
         Instance = this;
 
-        // Debug logs for UI elements
-        if (healthText == null) Debug.LogError("Awake: healthText is NULL in GameManager Inspector!", this);
-        else Debug.Log("Awake: healthText in GameManager references: " + healthText.name + " (Instance ID: " + healthText.GetInstanceID() + ")");
-        if (moneyText == null) Debug.LogError("Awake: moneyText is NULL in GameManager Inspector!", this);
-        else Debug.Log("Awake: moneyText in GameManager references: " + moneyText.name + " (Instance ID: " + moneyText.GetInstanceID() + ")");
-        if (roundText == null) Debug.LogError("Awake: roundText is NULL in GameManager Inspector!", this);
-        else Debug.Log("Awake: roundText in GameManager references: " + roundText.name + " (Instance ID: " + roundText.GetInstanceID() + ")");
-        
-        // Debug logs for ScrollRect
-        if (turretBuyScrollRect == null) Debug.LogError("Awake: turretBuyScrollRect is NULL in GameManager Inspector! Scroll buttons will not work.", this);
-        else Debug.Log("Awake: turretBuyScrollRect in GameManager references: " + turretBuyScrollRect.name + " (Instance ID: " + turretBuyScrollRect.GetInstanceID() + ")");
+        // --- NEW: Add a check for the button ---
+        if (startRoundButton == null) Debug.LogError("Awake: startRoundButton is NULL in GameManager Inspector!", this);
+        // -----------------------------------------
 
-        // --- NEW: Get original material from basicTowerPrefab ---
+        if (healthText == null) Debug.LogError("Awake: healthText is NULL in GameManager Inspector!", this);
+        if (moneyText == null) Debug.LogError("Awake: moneyText is NULL in GameManager Inspector!", this);
+        if (roundText == null) Debug.LogError("Awake: roundText is NULL in GameManager Inspector!", this);
+        if (enemyCounterText == null) Debug.LogError("Awake: enemyCounterText is NULL in GameManager Inspector! Enemy counter will not update.", this);
+        if (turretBuyScrollRect == null) Debug.LogWarning("Awake: turretBuyScrollRect is NULL in GameManager Inspector! Scroll buttons will not work.", this);
+
         if (basicTowerPrefab != null)
         {
             Renderer prefabRenderer = basicTowerPrefab.GetComponent<Renderer>();
@@ -125,9 +131,7 @@ public class GameManager : MonoBehaviour
         {
             Debug.LogError("Awake: basicTowerPrefab is NULL! Cannot store original material.", this);
         }
-        // --------------------------------------------------------
 
-        // Initial UI updates
         UpdateHealthUI();
         UpdateMoneyUI();
         UpdateRoundUI();
@@ -153,15 +157,12 @@ public class GameManager : MonoBehaviour
             Debug.LogError("Waypoints GameObject not found! Please create an empty GameObject named 'Waypoints' with child Transforms for the enemy path.");
         }
 
-        Debug.Log("Start: Calling UpdateHealthUI with playerHealth: " + playerHealth);
-        Debug.Log("Start: Calling UpdateMoneyUI with playerMoney: " + playerMoney);
-        Debug.Log("Start: Calling UpdateRoundUI with currentRound: " + currentRound);
-
         UpdateHealthUI();
         UpdateMoneyUI();
         UpdateRoundUI();
 
-        NextRound(); // This will start Round 1
+        // --- MODIFIED: Prepare the very first round instead of auto-starting it ---
+        PrepareNextRound();
     }
 
     private void Update()
@@ -173,13 +174,11 @@ public class GameManager : MonoBehaviour
         {
             if (isSellingTower)
             {
-                Debug.Log("Update: Left click detected in sell mode. Calling TrySellHoveredTower().");
                 TrySellHoveredTower();
             }
         }
         else if (Input.GetMouseButtonDown(1))
         {
-            Debug.Log("Update: Right click detected. Cancelling modes.");
             CancelPlacement();
             ExitSellMode();
         }
@@ -215,45 +214,89 @@ public class GameManager : MonoBehaviour
         return false;
     }
 
-    public void NextRound()
+    // --- RENAMED & MODIFIED: Was 'NextRound', now prepares the round and shows the button ---
+    private void PrepareNextRound()
     {
+        // Check if player has beaten all defined waves
+        if (currentRound >= waves.Count)
+        {
+            GameOver(true); // Player wins!
+            return;
+        }
+
         currentRound++;
         UpdateRoundUI();
-        Debug.Log($"Starting Round: {currentRound}");
+        Debug.Log($"Preparing Round: {currentRound}");
+
+        // Get info for the upcoming wave to display on the UI
+        Wave nextWave = waves[currentRound - 1];
+        enemiesRemainingInWave = nextWave.TotalEnemies;
+        UpdateEnemyCounterUI();
+
+        startRoundButton.gameObject.SetActive(true); // Show the start button
+    }
+
+    // --- NEW: Public method for the START ROUND button to call ---
+    public void StartRound()
+    {
+        // Prevent starting a round if one is already active
+        if (isWaveInProgress) return;
+        
+        isWaveInProgress = true;
+        startRoundButton.gameObject.SetActive(false); // Hide the button
+
+        // Play sound effect if assigned
+        if (startRoundAudioSource != null)
+        {
+            startRoundAudioSource.Play();
+        }
+
+        // Get the current wave and start spawning enemies
+        Wave currentWave = waves[currentRound - 1];
+        enemiesSpawnedInWave = currentWave.TotalEnemies;
+        UpdateEnemyCounterUI(); // Update counter text to "Enemies:"
 
         if (currentWaveCoroutine != null)
         {
             StopCoroutine(currentWaveCoroutine);
         }
-        currentWaveCoroutine = StartCoroutine(SpawnWave(currentRound));
+        currentWaveCoroutine = StartCoroutine(SpawnWave(currentWave));
     }
 
-    private IEnumerator SpawnWave(int roundNumber)
+
+    private IEnumerator SpawnWave(Wave waveToSpawn)
     {
         yield return new WaitForSeconds(startWaveDelay);
 
-        int numberOfEnemiesToSpawn = 5 + (roundNumber * 2);
-        Debug.Log($"Spawning {numberOfEnemiesToSpawn} enemies for Round {roundNumber}");
+        Debug.Log($"Spawning wave for Round {currentRound} with {waveToSpawn.TotalEnemies} enemies.");
 
-        for (int i = 0; i < numberOfEnemiesToSpawn; i++)
+        // Iterate through each group of enemies defined in the wave
+        foreach (EnemyGroup group in waveToSpawn.enemyGroups)
         {
-            if (playerHealth <= 0)
+            if (group.enemyPrefab == null)
             {
-                yield break;
+                Debug.LogError($"Wave {currentRound} has an enemy group with a missing prefab! Skipping group.");
+                continue;
             }
 
-            SpawnEnemy();
-            yield return new WaitForSeconds(enemySpawnInterval);
+            // For each group, spawn the specified number of that enemy type
+            for (int i = 0; i < group.count; i++)
+            {
+                if (playerHealth <= 0) yield break; // Stop if player is dead
+
+                SpawnEnemy(group.enemyPrefab); // Pass the specific prefab to spawn
+                yield return new WaitForSeconds(enemySpawnInterval);
+            }
         }
 
-        Debug.Log($"Round {roundNumber} enemy spawning complete. Waiting for enemies to clear.");
+        Debug.Log($"Round {currentRound} enemy spawning complete. Waiting for enemies to clear.");
     }
-
-    private void SpawnEnemy()
+    
+    private void SpawnEnemy(GameObject enemyPrefabToSpawn)
     {
-        if (enemyPrefab == null)
+        if (enemyPrefabToSpawn == null)
         {
-            Debug.LogError("Enemy Prefab not assigned in GameManager!");
+            Debug.LogError("Attempted to spawn a NULL enemy prefab!");
             return;
         }
         if (pathWaypoints == null || pathWaypoints.Length == 0)
@@ -262,7 +305,7 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        GameObject enemyGO = Instantiate(enemyPrefab, pathWaypoints[0].position, Quaternion.identity);
+        GameObject enemyGO = Instantiate(enemyPrefabToSpawn, pathWaypoints[0].position, Quaternion.identity);
         Enemy enemy = enemyGO.GetComponent<Enemy>();
         if (enemy != null)
         {
@@ -270,14 +313,35 @@ public class GameManager : MonoBehaviour
         }
         else
         {
-            Debug.LogError("Instantiated enemy does not have an Enemy script!");
+            Debug.LogError($"Instantiated enemy prefab '{enemyPrefabToSpawn.name}' does not have an Enemy script!");
             Destroy(enemyGO);
         }
     }
 
-    /// <summary>
-    /// Called when the Light Turret buy slot is clicked.
-    /// </summary>
+    public void EnemyDefeated()
+    {
+        enemiesRemainingInWave--;
+        enemiesRemainingInWave = Mathf.Max(0, enemiesRemainingInWave);
+        UpdateEnemyCounterUI();
+
+        Debug.Log($"Enemy Defeated! {enemiesRemainingInWave} remaining.");
+
+        // --- MODIFIED: Check if wave is over using the new flag ---
+        if (enemiesRemainingInWave <= 0 && isWaveInProgress)
+        {
+            isWaveInProgress = false; // Mark wave as over
+            Debug.Log("All enemies defeated! Preparing next round...");
+            StartCoroutine(StartNextRoundWithDelay(3f));
+        }
+    }
+
+    private IEnumerator StartNextRoundWithDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        // --- MODIFIED: Now calls PrepareNextRound to set up for the player ---
+        PrepareNextRound();
+    }
+
     public void BuyLightTurret()
     {
         Debug.Log("BuyLightTurret button clicked. Attempting to place Light Turret.");
@@ -301,7 +365,7 @@ public class GameManager : MonoBehaviour
                 previewTowerComponent.enabled = false;
             }
 
-            SetPreviewMaterial(currentPlacingTowerPreview, false); // Start with invalid visually
+            SetPreviewMaterial(currentPlacingTowerPreview, false);
 
             if (currentlyHoveredTower != null)
             {
@@ -327,7 +391,6 @@ public class GameManager : MonoBehaviour
 
         bool hitGround = Physics.Raycast(ray, out hit, Mathf.Infinity, groundLayer);
         Debug.DrawRay(ray.origin, ray.direction * 100f, hitGround ? Color.blue : Color.yellow);
-        Debug.Log($"HandleTowerPlacement: Raycast hit ground: {hitGround}. Hit point: {hit.point}");
 
         bool isValidPlacement = false;
 
@@ -339,27 +402,15 @@ public class GameManager : MonoBehaviour
             float checkRadius = 0.5f;
             if (towerCollider != null)
             {
-                if (towerCollider is SphereCollider sphereCol)
-                {
-                    checkRadius = sphereCol.radius * basicTowerPrefab.transform.lossyScale.x;
-                }
-                else if (towerCollider is CapsuleCollider capsuleCol)
-                {
-                    CapsuleCollider capCol = towerCollider as CapsuleCollider;
-                    checkRadius = Mathf.Max(capCol.radius, capCol.height / 2f) * basicTowerPrefab.transform.lossyScale.x;
-                }
-                else if (towerCollider is BoxCollider boxCol)
-                {
-                    checkRadius = Mathf.Max(boxCol.size.x, boxCol.size.z) / 2f * basicTowerPrefab.transform.lossyScale.x;
-                }
+                if (towerCollider is SphereCollider sphereCol) checkRadius = sphereCol.radius * basicTowerPrefab.transform.lossyScale.x;
+                else if (towerCollider is CapsuleCollider capCol) checkRadius = Mathf.Max(capCol.radius, capCol.height / 2f) * basicTowerPrefab.transform.lossyScale.x;
+                else if (towerCollider is BoxCollider boxCol) checkRadius = Mathf.Max(boxCol.size.x, boxCol.size.z) / 2f * basicTowerPrefab.transform.lossyScale.x;
             }
-            Debug.Log($"HandleTowerPlacement: Calculated tower checkRadius: {checkRadius}. Tower Prefab Scale: {basicTowerPrefab.transform.localScale}");
 
             Vector3 overlapCheckPosition = new Vector3(hit.point.x, basicTowerPrefab.transform.position.y + 0.1f, hit.point.z);
             
             Collider[] collidersInNoBuildZone = Physics.OverlapSphere(overlapCheckPosition, checkRadius, noBuildZoneLayer);
             bool overlapsNoBuildZone = collidersInNoBuildZone.Length > 0;
-            Debug.Log($"HandleTowerPlacement: Overlaps NoBuildZone: {overlapsNoBuildZone}. Colliders found: {collidersInNoBuildZone.Length}");
 
             isValidPlacement = !overlapsNoBuildZone;
 
@@ -368,15 +419,11 @@ public class GameManager : MonoBehaviour
         else
         {
             SetPreviewMaterial(currentPlacingTowerPreview, false);
-            Debug.Log("HandleTowerPlacement: Raycast did not hit ground layer, placement invalid.");
         }
 
         if (Input.GetMouseButtonDown(0) && hitGround && isValidPlacement)
         {
             PlaceTower(hit.point);
-            isPlacingTower = false;
-            Destroy(currentPlacingTowerPreview);
-            currentPlacingTowerPreview = null;
         }
         else if (Input.GetMouseButtonDown(1))
         {
@@ -396,12 +443,17 @@ public class GameManager : MonoBehaviour
             newTowerComponent.enabled = true;
         }
 
-        Debug.Log("Tower placed at: " + newTowerGO.transform.position);
+        // Finalize placement
+        isPlacingTower = false;
+        Destroy(currentPlacingTowerPreview);
+        currentPlacingTowerPreview = null;
     }
 
     public void CancelPlacement()
     {
         if (!isPlacingTower) return;
+        
+        AddMoney(basicTowerCost); // Refund the money since placement was cancelled
 
         isPlacingTower = false;
         if (currentPlacingTowerPreview != null)
@@ -414,26 +466,18 @@ public class GameManager : MonoBehaviour
             Destroy(currentPlacingTowerPreview);
             currentPlacingTowerPreview = null;
         }
-        Debug.Log("Tower placement cancelled.");
     }
 
     public void StartSellingTower()
     {
         if (isPlacingTower) CancelPlacement();
 
-        if (isSellingTower)
+        isSellingTower = !isSellingTower; // Toggle sell mode
+        
+        // If we just turned sell mode OFF, hide any sell price text
+        if (!isSellingTower && currentlyHoveredTower != null)
         {
-            Debug.Log("StartSellingTower: Toggling OFF sell mode.");
-            ExitSellMode();
-            return;
-        }
-
-        isSellingTower = true;
-        Debug.Log("StartSellingTower: Entered sell mode. isSellingTower = " + isSellingTower);
-
-        if (currentlyHoveredTower != null)
-        {
-            currentlyHoveredTower.SetRadiusVisible(false);
+            currentlyHoveredTower.HideSellPrice();
         }
     }
 
@@ -442,56 +486,39 @@ public class GameManager : MonoBehaviour
         if (!isSellingTower) return;
 
         isSellingTower = false;
-        Debug.Log("ExitSellMode: Exited sell mode. isSellingTower = " + isSellingTower);
 
         if (currentlyHoveredTower != null)
         {
             currentlyHoveredTower.HideSellPrice();
-            currentlyHoveredTower.SetRadiusVisible(false);
+            currentlyHoveredTower.SetRadiusVisible(false); // Can also hide radius
             currentlyHoveredTower = null;
         }
     }
 
     private void TrySellHoveredTower()
     {
-        Debug.Log("TrySellHoveredTower: Called. currentlyHoveredTower is null? " + (currentlyHoveredTower == null) + ", isSellingTower: " + isSellingTower);
         if (currentlyHoveredTower != null && isSellingTower)
         {
             SellTower(currentlyHoveredTower);
-        }
-        else if (isSellingTower)
-        {
-            Debug.Log("TrySellHoveredTower: No tower hovered to sell when clicked.");
         }
         ExitSellMode();
     }
 
     private void SellTower(Tower towerToSell)
     {
-        Debug.Log("SellTower: Called to sell " + (towerToSell != null ? towerToSell.name : "NULL") + ".");
         if (towerToSell == null) return;
 
         int refundAmount = Mathf.FloorToInt(towerToSell.TowerCost * sellRefundPercentage);
-        Debug.Log($"SellTower: TowerCost={towerToSell.TowerCost}, SellRefundPercentage={sellRefundPercentage}, RefundAmount={refundAmount}");
-
         AddMoney(refundAmount);
-        Debug.Log("SellTower: Refunding $" + refundAmount + ". New money: $" + PlayerMoney);
 
         if (currentlyHoveredTower == towerToSell)
         {
-            currentlyHoveredTower.HideSellPrice();
             currentlyHoveredTower = null;
         }
 
         Destroy(towerToSell.gameObject);
-        Debug.Log("SellTower: Tower destroyed.");
     }
-
-    /// <summary>
-    /// Sets the material of the preview tower to indicate valid/invalid placement.
-    /// </summary>
-    /// <param name="previewGO">The preview tower GameObject.</param>
-    /// <param name="isValid">True for valid, false for invalid.</param>
+    
     private void SetPreviewMaterial(GameObject previewGO, bool isValid)
     {
         if (previewGO == null) return;
@@ -499,7 +526,7 @@ public class GameManager : MonoBehaviour
         Renderer previewRenderer = previewGO.GetComponent<Renderer>();
         if (previewRenderer != null)
         {
-            if (isValid) // Use original material for valid placement
+            if (isValid)
             {
                 if (originalTowerMaterial != null)
                 {
@@ -507,12 +534,11 @@ public class GameManager : MonoBehaviour
                 }
                 else
                 {
-                    // Fallback if original material wasn't set, use a default white/grey
-                    previewRenderer.material = new Material(Shader.Find("Universal Render Pipeline/Lit")); // Or "Standard" if not URP
+                    previewRenderer.material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
                     Debug.LogWarning("SetPreviewMaterial: Original tower material is NULL, using default URP Lit material.", this);
                 }
             }
-            else // Use invalid material for invalid placement
+            else
             {
                 if (previewInvalidMaterial != null)
                 {
@@ -520,8 +546,7 @@ public class GameManager : MonoBehaviour
                 }
                 else
                 {
-                    // Fallback if invalid material wasn't set, use a default red
-                    previewRenderer.material = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = Color.red }; // Or "Standard"
+                    previewRenderer.material = new Material(Shader.Find("Universal Render Pipeline/Lit")) { color = Color.red };
                     Debug.LogWarning("SetPreviewMaterial: Invalid preview material is NULL, using default red material.", this);
                 }
             }
@@ -554,31 +579,28 @@ public class GameManager : MonoBehaviour
 
             if (hitTower != null)
             {
+                // If we are hovering over a new tower
                 if (currentlyHoveredTower != hitTower)
                 {
+                    // Un-highlight the old tower
                     if (currentlyHoveredTower != null)
                     {
                         currentlyHoveredTower.SetRadiusVisible(false);
                         currentlyHoveredTower.HideSellPrice();
                     }
+                    
                     currentlyHoveredTower = hitTower;
-                    Debug.Log("HandleTowerHover: Hovering new tower: " + currentlyHoveredTower.name);
 
+                    // Highlight the new tower
+                    currentlyHoveredTower.SetRadiusVisible(true);
                     if (isSellingTower)
                     {
                         int refund = Mathf.FloorToInt(currentlyHoveredTower.TowerCost * sellRefundPercentage);
                         currentlyHoveredTower.ShowSellPrice(refund);
-                        currentlyHoveredTower.SetRadiusVisible(false);
-                        Debug.Log("HandleTowerHover: Displaying sell price for " + currentlyHoveredTower.name + ": $" + refund);
-                    }
-                    else
-                    {
-                        currentlyHoveredTower.SetRadiusVisible(true);
-                        currentlyHoveredTower.HideSellPrice();
-                        Debug.Log("HandleTowerHover: Displaying radius for " + currentlyHoveredTower.name);
                     }
                 }
             }
+            // If our raycast hits something that isn't a tower (but is on the tower layer)
             else
             {
                 if (currentlyHoveredTower != null)
@@ -586,10 +608,10 @@ public class GameManager : MonoBehaviour
                     currentlyHoveredTower.SetRadiusVisible(false);
                     currentlyHoveredTower.HideSellPrice();
                     currentlyHoveredTower = null;
-                    Debug.Log("HandleTowerHover: Exited tower hover (hit non-Tower script object).");
                 }
             }
         }
+        // If our raycast hits nothing
         else
         {
             if (currentlyHoveredTower != null)
@@ -597,54 +619,34 @@ public class GameManager : MonoBehaviour
                     currentlyHoveredTower.SetRadiusVisible(false);
                     currentlyHoveredTower.HideSellPrice();
                     currentlyHoveredTower = null;
-                    Debug.Log("HandleTowerHover: Exited tower hover (no hit).");
             }
         }
     }
-
-    /// <summary>
-    /// Updates the health display on the UI.
-    /// </summary>
-    private void UpdateHealthUI()
+    
+    private void UpdateHealthUI() { if (healthText != null) healthText.text = $"{playerHealth}"; }
+    private void UpdateMoneyUI() { if (moneyText != null) moneyText.text = $"{playerMoney}"; }
+    private void UpdateRoundUI() { if (roundText != null) roundText.text = $"{currentRound}"; }
+    
+    // --- MODIFIED: Enemy counter text now changes based on game state ---
+    private void UpdateEnemyCounterUI()
     {
-        if (healthText != null)
+        if (enemyCounterText != null)
         {
-            healthText.text = $"{playerHealth}";
-            Debug.Log($"UpdateHealthUI: Setting HealthText to '{healthText.text}'");
+            if (isWaveInProgress)
+            {
+                enemyCounterText.text = $"Enemies: {enemiesRemainingInWave}";
+            }
+            else
+            {
+                // Shows the count for the upcoming wave during intermission
+                enemyCounterText.text = $"Next Wave: {enemiesRemainingInWave}";
+            }
         }
     }
-
-    /// <summary>
-    /// Updates the money display on the UI.
-    /// </summary>
-    private void UpdateMoneyUI()
-    {
-        if (moneyText != null)
-        {
-            moneyText.text = $"{playerMoney}";
-            Debug.Log($"UpdateMoneyUI: Setting MoneyText to '{moneyText.text}'");
-        }
-    }
-
-    /// <summary>
-    /// Updates the round display on the UI.
-    /// </summary>
-    private void UpdateRoundUI()
-    {
-        if (roundText != null)
-        {
-            roundText.text = $"{currentRound}";
-            Debug.Log($"UpdateRoundUI: Setting RoundText to '{roundText.text}'");
-        }
-    }
-
-    /// <summary>
-    /// Handles the end of the game (win or lose).
-    /// </summary>
-    /// <param name="won">True if the player won, false if they lost.</param>
+    
     public void GameOver(bool won)
     {
-        Time.timeScale = 0; // Pause the game
+        Time.timeScale = 0;
         gameOverPanel.SetActive(true);
 
         if (won)
@@ -655,41 +657,21 @@ public class GameManager : MonoBehaviour
         {
             gameOverMessageText.text = "GAME OVER!";
         }
-        Debug.Log(won ? "Game Won!" : "Game Over!");
     }
-
-    // --- Scrolling Methods ---
-    /// <summary>
-    /// Scrolls the turret buy menu up by a defined amount.
-    /// </summary>
+    
     public void ScrollUpTurretMenu()
     {
         if (turretBuyScrollRect != null)
         {
-            Debug.Log($"ScrollUpTurretMenu: Current normalized position: {turretBuyScrollRect.verticalNormalizedPosition}"); // DEBUG
             turretBuyScrollRect.verticalNormalizedPosition = Mathf.Min(1f, turretBuyScrollRect.verticalNormalizedPosition + scrollAmountPerClick);
-            Debug.Log($"ScrollUpTurretMenu: New normalized position: {turretBuyScrollRect.verticalNormalizedPosition}"); // DEBUG
-        }
-        else
-        {
-            Debug.LogWarning("ScrollUpTurretMenu: turretBuyScrollRect is not assigned!", this);
         }
     }
 
-    /// <summary>
-    /// Scrolls the turret buy menu down by a defined amount.
-    /// </summary>
     public void ScrollDownTurretMenu()
     {
         if (turretBuyScrollRect != null)
         {
-            Debug.Log($"ScrollDownTurretMenu: Current normalized position: {turretBuyScrollRect.verticalNormalizedPosition}"); // DEBUG
             turretBuyScrollRect.verticalNormalizedPosition = Mathf.Max(0f, turretBuyScrollRect.verticalNormalizedPosition - scrollAmountPerClick);
-            Debug.Log($"ScrollDownTurretMenu: New normalized position: {turretBuyScrollRect.verticalNormalizedPosition}"); // DEBUG
-        }
-        else
-        {
-            Debug.LogWarning("ScrollDownTurretMenu: turretBuyScrollRect is not assigned!", this);
         }
     }
 }
