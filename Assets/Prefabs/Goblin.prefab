@@ -57,6 +57,10 @@ PrefabInstance:
       value: 3
       objectReference: {fileID: 0}
     - target: {fileID: 6128337430058968303, guid: 47345608f62eae14fbec95f64126a273, type: 3}
+      propertyPath: useRagdoll
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6128337430058968303, guid: 47345608f62eae14fbec95f64126a273, type: 3}
       propertyPath: enemyHealth
       value: 3
       objectReference: {fileID: 0}
@@ -163,7 +167,8 @@ PrefabInstance:
       value: 
       objectReference: {fileID: 9100000, guid: 7298a5e08bdae9a43a28a60f22be6de9, type: 2}
     m_RemovedComponents: []
-    m_RemovedGameObjects: []
+    m_RemovedGameObjects:
+    - {fileID: 739371243456926396, guid: abf704e65d7be1b42851d9c1ab14171e, type: 3}
     m_AddedGameObjects: []
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: 4998664685087693539, guid: abf704e65d7be1b42851d9c1ab14171e, type: 3}
@@ -595,8 +600,8 @@ SphereCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Radius: 0.39457205
-  m_Center: {x: 0, y: 0.39457205, z: 0}
+  m_Radius: 0.003
+  m_Center: {x: 0, y: 0, z: 0}
 --- !u!54 &3465520419759227205
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -820,7 +825,7 @@ Rigidbody:
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
   m_UseGravity: 1
-  m_IsKinematic: 0
+  m_IsKinematic: 1
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0

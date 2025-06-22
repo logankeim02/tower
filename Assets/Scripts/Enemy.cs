@@ -17,29 +17,31 @@ public class Enemy : MonoBehaviour
     [SerializeField] private Animator enemyAnimator;
     [Tooltip("The name of the animation state to play when the enemy moves (e.g., 'Walk', 'Run').")]
     [SerializeField] private string walkAnimationStateName = "Walk";
-
+    
+    [Header("Ragdoll Settings")]
+    [Tooltip("Check this box if this enemy should use the ragdoll system on death.")]
+    [SerializeField] private bool useRagdoll = true;
+    
     [Header("Death Effects")]
     [Tooltip("Prefab of the blood splat to instantiate on the ground when enemy dies.")]
     [SerializeField] private GameObject bloodSplatGroundPrefab;
     [Tooltip("Prefab of the gore particles to instantiate and play when enemy dies.")]
     [SerializeField] private GameObject goreParticlesPrefab;
 
-    // --- NEW: References for Ragdoll ---
     private Rigidbody[] ragdollRigidbodies;
     private Collider mainCollider;
-    // ---------------------------------
-
+    
     private Transform[] pathWaypoints;
     private int currentWaypointIndex = 0;
     private bool isDying = false;
 
     private void Awake()
     {
-        // --- NEW: Get ragdoll components on Awake ---
         mainCollider = GetComponent<Collider>();
-        ragdollRigidbodies = GetComponentsInChildren<Rigidbody>();
-        // Initially, all rigidbodies should be kinematic (set in the editor from Step 1)
-        // ---------------------------------------------
+        if (useRagdoll)
+        {
+            ragdollRigidbodies = GetComponentsInChildren<Rigidbody>();
+        }
     }
 
     public void SetPath(Transform[] waypoints)
@@ -61,7 +63,6 @@ public class Enemy : MonoBehaviour
 
     private void Update()
     {
-        // Stop moving if dead
         if (isDying) return;
 
         if (pathWaypoints == null || pathWaypoints.Length == 0)
@@ -89,12 +90,18 @@ public class Enemy : MonoBehaviour
         {
             if (!isDying)
             {
-                // --- MODIFIED: Trigger ragdoll instead of destroying immediately ---
                 isDying = true;
                 GameManager.Instance.TakeDamage(damageOnReachEnd);
                 GameManager.Instance.EnemyDefeated();
-                ActivateRagdoll();
-                // -------------------------------------------------------------
+
+                if (useRagdoll)
+                {
+                    ActivateRagdoll();
+                }
+                else
+                {
+                    Destroy(gameObject); 
+                }
             }
         }
     }
@@ -111,62 +118,70 @@ public class Enemy : MonoBehaviour
             GameManager.Instance.AddMoney(moneyOnKill);
             SpawnDeathEffects();
             GameManager.Instance.EnemyDefeated();
-            // --- MODIFIED: Trigger ragdoll instead of destroying immediately ---
-            ActivateRagdoll();
-            // -------------------------------------------------------------
+            
+            if (useRagdoll)
+            {
+                ActivateRagdoll();
+            }
+            else
+            {
+                Destroy(gameObject);
+            }
         }
     }
-
-    // --- NEW: Method to switch from animated to ragdoll ---
+    
     private void ActivateRagdoll()
     {
-        // Disable the animator and main collider
-        enemyAnimator.enabled = false;
-        if(mainCollider != null) mainCollider.enabled = false;
+        // --- NEW: Change layer to "Ragdoll" ---
+        int ragdollLayer = LayerMask.NameToLayer("Ragdoll");
+        SetLayerRecursively(gameObject, ragdollLayer);
+        // ----------------------------------------
 
-        // Enable physics on all ragdoll rigidbodies
+        if (enemyAnimator != null) enemyAnimator.enabled = false;
+        if (mainCollider != null) mainCollider.enabled = false;
+        
         foreach (Rigidbody rb in ragdollRigidbodies)
         {
             rb.isKinematic = false;
         }
         
-        // Start the fade out and destroy timer
         StartCoroutine(FadeOutAndDestroy(5f, 2f));
     }
 
-    // --- NEW: Coroutine for timer and fading ---
+    // --- NEW: Helper function to change layer for all children ---
+    private void SetLayerRecursively(GameObject obj, int newLayer)
+    {
+        if (obj == null) return;
+
+        obj.layer = newLayer;
+
+        foreach (Transform child in obj.transform)
+        {
+            if (child == null) continue;
+            SetLayerRecursively(child.gameObject, newLayer);
+        }
+    }
+    
     private IEnumerator FadeOutAndDestroy(float delay, float fadeDuration)
     {
-        // Wait for 5 seconds
         yield return new WaitForSeconds(delay);
-
-        // Get all renderers on the ragdoll
         SkinnedMeshRenderer[] renderers = GetComponentsInChildren<SkinnedMeshRenderer>();
         float timer = 0f;
-        
-        // Store original colors to fade from
         MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
 
-        // Gradually fade out
         while (timer < fadeDuration)
         {
-            // Calculate the new alpha value
             float newAlpha = Mathf.Lerp(1f, 0f, timer / fadeDuration);
-
-            // Apply alpha to all renderers
             foreach (SkinnedMeshRenderer r in renderers)
             {
                 r.GetPropertyBlock(propBlock);
-                Color originalColor = r.material.color; // Assuming URP Lit shader
+                Color originalColor = r.material.color;
                 propBlock.SetColor("_BaseColor", new Color(originalColor.r, originalColor.g, originalColor.b, newAlpha));
                 r.SetPropertyBlock(propBlock);
             }
-
             timer += Time.deltaTime;
             yield return null;
         }
-
-        // Destroy the GameObject after fading
         Destroy(gameObject);
     }
 
